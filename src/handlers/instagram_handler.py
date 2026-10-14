@@ -68,21 +68,22 @@ class InstagramHandler(BaseHandler):
         kind = "reel" if kind.startswith("reel") else kind
         canonical = f"https://www.instagram.com/{kind}/{shortcode}/"
 
+        # Anonymous methods first: every logged-in request is a step towards
+        # Instagram flagging the account for automation. The session is only
+        # used for posts that really need it (private, age-gated, photos).
         cookies = instagram_session.cookies_file()
         methods = [
-            ("yt-dlp", lambda d: self._via_ytdlp(canonical, d, cookies)),
-            ("instaloader", lambda d: self._via_instaloader(shortcode, d)),
-            ("reelsaver", lambda d: self._via_reelsaver(canonical, d)),
+            ("yt-dlp", False, lambda d: self._via_ytdlp(canonical, d, None)),
+            ("reelsaver", False, lambda d: self._via_reelsaver(canonical, d)),
         ]
-        if not cookies:
-            # Anonymous instaloader is blocked almost everywhere; don't burn requests on it.
-            methods = [m for m in methods if m[0] != "instaloader"]
-        elif kind == "p":
-            # Posts may be photos/carousels, which only instaloader handles fully.
-            methods.insert(0, methods.pop(1))
+        if cookies:
+            methods += [
+                ("yt-dlp+session", True, lambda d: self._via_ytdlp(canonical, d, cookies)),
+                ("instaloader", True, lambda d: self._via_instaloader(shortcode, d)),
+            ]
 
-        session_problem = False
-        for name, method in methods:
+        login_needed = session_failed = False
+        for name, uses_session, method in methods:
             dest = tmp / name
             dest.mkdir()
             try:
@@ -93,19 +94,20 @@ class InstagramHandler(BaseHandler):
             except Exception as e:
                 error = str(e)
                 logger.warning("Instagram: %s failed: %s", name, error[-300:])
-                session_problem |= any(m in error.lower() for m in SESSION_ERROR_MARKERS)
+                if any(m in error.lower() for m in SESSION_ERROR_MARKERS):
+                    session_failed |= uses_session
+                    login_needed |= not uses_session
 
-        if session_problem:
-            if cookies:
-                logger.error(
-                    "Instagram session looks expired or flagged. "
-                    "Run `make ig-login` on the server to refresh it."
-                )
-            else:
-                logger.error(
-                    "Instagram requires login for this post. "
-                    "Run `make ig-login` on the server to create a session."
-                )
+        if session_failed:
+            logger.error(
+                "Instagram session looks expired or flagged. "
+                "Refresh data/instagram/cookies.txt (see README) or run `make ig-login`."
+            )
+        elif login_needed and not cookies:
+            logger.error(
+                "Instagram requires login for this post. "
+                "Add a session to data/instagram/ (see README) or run `make ig-login`."
+            )
         return []
 
     async def _resolve_share_link(self, url: str) -> str:

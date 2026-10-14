@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import shutil
 import tempfile
 from contextlib import ExitStack
 from pathlib import Path
@@ -22,6 +23,8 @@ MEDIA_GROUP_LIMIT = 10
 
 # Prefer <=1080p, mp4-friendly; fall back to whatever is available.
 YTDLP_FORMAT = "bv*[height<=1080]+ba/b[height<=1080]/bv*+ba/b"
+# Without ffmpeg, separate video+audio streams can't be merged: take a single file.
+YTDLP_FORMAT_NO_FFMPEG = "b[height<=1080]/b"
 
 # Caps concurrent downloads so a burst of links doesn't saturate the server.
 download_slot = asyncio.Semaphore(config.MAX_PARALLEL_DOWNLOADS)
@@ -43,10 +46,10 @@ def _media_files(directory: Path) -> list[Path]:
 
 
 def _ytdlp_download(url: str, dest_dir: Path, cookies: Path | None, user_agent: str | None) -> None:
+    has_ffmpeg = shutil.which("ffmpeg") is not None
     opts = {
         "outtmpl": str(dest_dir / "%(id)s_%(autonumber)s.%(ext)s"),
-        "format": YTDLP_FORMAT,
-        "merge_output_format": "mp4",
+        "format": YTDLP_FORMAT if has_ffmpeg else YTDLP_FORMAT_NO_FFMPEG,
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
@@ -55,8 +58,14 @@ def _ytdlp_download(url: str, dest_dir: Path, cookies: Path | None, user_agent: 
         "socket_timeout": 30,
         "logger": logging.getLogger("yt_dlp"),
     }
+    if has_ffmpeg:
+        opts["merge_output_format"] = "mp4"
     if cookies:
-        opts["cookiefile"] = str(cookies)
+        # yt-dlp writes the cookie jar back on exit, including cookies Instagram
+        # deletes. Give it a throwaway copy so it can never wipe the real session.
+        cookies_copy = dest_dir / ".cookies.txt"
+        shutil.copyfile(cookies, cookies_copy)
+        opts["cookiefile"] = str(cookies_copy)
     if user_agent:
         opts["http_headers"] = {"User-Agent": user_agent}
     with yt_dlp.YoutubeDL(opts) as ydl:

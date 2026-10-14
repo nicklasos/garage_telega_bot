@@ -68,7 +68,7 @@ def test_ignores_profiles_and_other_sites(handler):
     assert not handler.can_handle("https://example.com/reel/abc")
 
 
-async def test_reel_without_session_skips_instaloader(handler, tmp_path):
+async def test_without_session_only_anonymous_methods(handler, tmp_path):
     calls, files = await run_download(
         handler, "https://www.instagram.com/reel/abc/", tmp_path,
         ytdlp=Exception("nope"), reelsaver=[tmp_path / "r.mp4"],
@@ -77,28 +77,39 @@ async def test_reel_without_session_skips_instaloader(handler, tmp_path):
     assert files == [tmp_path / "r.mp4"]
 
 
-async def test_reel_with_session_tries_ytdlp_first(handler, tmp_path, logged_in):
+async def test_session_is_used_only_after_anonymous_fails(handler, tmp_path, logged_in):
     calls, _ = await run_download(
-        handler, "https://www.instagram.com/reel/abc/", tmp_path,
+        handler, "https://www.instagram.com/p/abc/", tmp_path,
         ytdlp=Exception("a"), insta=Exception("b"), reelsaver=Exception("c"),
     )
-    assert calls == ["yt-dlp", "instaloader", "reelsaver"]
+    assert calls == ["yt-dlp", "reelsaver", "yt-dlp", "instaloader"]
 
 
-async def test_post_with_session_tries_instaloader_first(handler, tmp_path, logged_in):
-    calls, files = await run_download(
-        handler, "https://www.instagram.com/p/abc/", tmp_path, insta=[tmp_path / "01.jpg"],
+async def test_anonymous_success_never_touches_session(handler, tmp_path, logged_in):
+    calls, _ = await run_download(
+        handler, "https://www.instagram.com/reel/abc/", tmp_path, ytdlp=[tmp_path / "v.mp4"],
     )
-    assert calls == ["instaloader"]
-    assert files == [tmp_path / "01.jpg"]
+    assert calls == ["yt-dlp"]
 
 
-async def test_ytdlp_receives_canonical_url_and_cookies(handler, tmp_path, logged_in):
-    with patch.object(handler, "_via_ytdlp", AsyncMock(return_value=["f"])) as ytdlp:
+async def test_ytdlp_cookies_only_on_session_attempt(handler, tmp_path, logged_in):
+    ytdlp = AsyncMock(side_effect=[Exception("login required"), ["f"]])
+    with patch.object(handler, "_via_ytdlp", ytdlp), \
+         patch.object(handler, "_via_reelsaver", AsyncMock(side_effect=Exception("down"))):
         await handler._download("https://www.instagram.com/reels/abc/?igsh=x", tmp_path)
-    url, _, cookies = ytdlp.call_args.args
+    (url, _, anon_cookies), (_, _, session_cookies) = [c.args for c in ytdlp.call_args_list]
     assert url == "https://www.instagram.com/reel/abc/"
-    assert cookies == instagram_session.cookies_file()
+    assert anon_cookies is None
+    assert session_cookies == instagram_session.cookies_file()
+
+
+async def test_login_required_without_session_is_logged(handler, tmp_path, caplog):
+    with caplog.at_level(logging.ERROR):
+        await run_download(
+            handler, "https://www.instagram.com/reel/abc/", tmp_path,
+            ytdlp=Exception("ERROR: login required"), reelsaver=Exception("down"),
+        )
+    assert "requires login" in caplog.text
 
 
 async def test_expired_session_is_logged(handler, tmp_path, logged_in, caplog):

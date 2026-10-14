@@ -33,8 +33,18 @@ async def test_run_ytdlp_passes_cookies_and_user_agent(tmp_path):
             "https://example.com/v", tmp_path, cookies=cookies, user_agent="UA/1.0"
         )
     assert [f.name for f in files] == ["vid_1.mp4"]
-    assert FakeYDL.last_opts["cookiefile"] == str(cookies)
+    # yt-dlp gets a copy, so writing cookies back can't touch the original.
+    assert FakeYDL.last_opts["cookiefile"] != str(cookies)
+    assert open(FakeYDL.last_opts["cookiefile"], "rb").read() == cookies.read_bytes()
     assert FakeYDL.last_opts["http_headers"] == {"User-Agent": "UA/1.0"}
+
+
+async def test_run_ytdlp_without_ffmpeg_avoids_merging(tmp_path):
+    with patch.object(downloader.yt_dlp, "YoutubeDL", FakeYDL), \
+         patch.object(downloader.shutil, "which", return_value=None):
+        await downloader.run_ytdlp("https://example.com/v", tmp_path)
+    assert FakeYDL.last_opts["format"] == downloader.YTDLP_FORMAT_NO_FFMPEG
+    assert "merge_output_format" not in FakeYDL.last_opts
 
 
 async def test_run_ytdlp_wraps_errors(tmp_path):

@@ -48,7 +48,7 @@ docker run -it --rm --env-file .env -v $PWD/data:/app/data garage-bot python src
 
 ## Instagram
 
-Many public reels download without logging in. From a server (datacenter IP) Instagram usually demands a login, so give the bot a session.
+Most public reels download without logging in, and the bot always tries that first. A session is only a fallback for posts that need it (photos, carousels, age-gated or private content). Every logged-in request raises the chance that Instagram flags the account for automation, so use a dedicated account, and **never press "Log out" in the browser you exported cookies from**: that kills the bot's session too.
 
 **Why exporting cookies from your laptop doesn't work well:** Instagram ties a session to the device and location it was created on. Cookies from your laptop's browser used from a server in another country, with a different User-Agent, look like a stolen session and get revoked. The session has to be created **from the server's IP** and always used with **one fixed User-Agent**. The bot handles the User-Agent part; you only need to log in from the server.
 
@@ -95,8 +95,7 @@ ssh user@your-server 'echo "<paste user agent>" > /path/to/garage_telega_bot/dat
 
 | Platform | Order |
 |---|---|
-| Instagram reel | yt-dlp (with session if present) → instaloader (session only) → ReelSaver API |
-| Instagram post `/p/` | instaloader first when a session exists (handles photos and carousels), then the same as a reel |
+| Instagram | anonymous yt-dlp → ReelSaver API → (only if a session exists) yt-dlp with session → instaloader with session (photos, carousels) |
 | TikTok | tikwm API → yt-dlp |
 | X / Facebook | yt-dlp |
 
