@@ -27,7 +27,7 @@ deploy: git install stop run
 	@echo "Deployed"
 
 update-ytdlp:
-	venv/bin/pip install -U yt-dlp instaloader
+	venv/bin/pip install -U "yt-dlp[default,curl-cffi]" instaloader
 
 # Log in to Instagram from THIS machine (run on the server over SSH).
 ig-login:

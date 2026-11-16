@@ -1,6 +1,7 @@
 python-telegram-bot==22.0
 aiohttp>=3.11.18
 # Keep yt-dlp/instaloader current: Instagram extractors break often (make update-ytdlp).
-yt-dlp>=2026.8.19
+# curl-cffi lets yt-dlp impersonate a browser; TikTok blocks it from the server without it.
+yt-dlp[default,curl-cffi]>=2026.10.26
 instaloader>=4.15
 python-dotenv>=1.0.0
